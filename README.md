@@ -34,6 +34,3 @@ This repository contains the firmware and design principles for a high-precision
 3.  Install ESP32 Board Support (v2.0.x or higher).
 4.  Upload to your device and open **Serial Plotter** at 115200 baud.
 
----
-Developed by **Kevser Asiltürk**  
-*Biomedical Engineering Student at Ankara University*
