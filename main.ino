@@ -55,4 +55,50 @@ void loop() {
   }
   float adcAverage = (float)adcSum / samples;
 
-  // --- AUTO-RANGING LOGIC
+  // --- AUTO-RANGING LOGIC ---
+  // If ADC is too low (low sensitivity), shift down
+  if (adcAverage < 800 && activeStage > 0) {
+    activeStage--; 
+    return; 
+  }
+  // If ADC is too high (approaching 3.3V), shift up
+  else if (adcAverage > 3300 && activeStage < NUM_STAGES - 1) {
+    activeStage++; 
+    return; 
+  }
+
+  // --- CALCULATION AND CALIBRATION ---
+  float vOut = (adcAverage / adcResolution) * 3.3; 
+  
+  // Stage-specific voltage reference (includes diode drops)
+  float dynamicVRef;
+  if (activeStage == 0)      dynamicVRef = 2.254; // 325.8 Ohm stage calibration
+  else if (activeStage == 1) dynamicVRef = 2.376; // 990.0 Ohm stage calibration
+  else                       dynamicVRef = 2.550; // 4650.0 Ohm stage (approx.)
+
+  float measuredResistor = 0.0;
+  // Safety: ensure vOut does not exceed reference
+  if (dynamicVRef - vOut > 0.01) {
+    measuredResistor = referenceResistors[activeStage] * (vOut / (dynamicVRef - vOut));
+  } else {
+    measuredResistor = -1; // Open circuit or out of range
+  }
+
+  // --- PRINT RESULTS ---
+  Serial.print("STAGE: ");
+  Serial.print(activeStage + 1);
+  Serial.print(" [Ref: ");
+  Serial.print(referenceResistors[activeStage]);
+  Serial.print(" Ohm] | Vout: ");
+  Serial.print(vOut, 3);
+  Serial.print("V | CALCULATED RESISTANCE: ");
+  
+  if (measuredResistor > 0) {
+    Serial.print(measuredResistor, 2);
+    Serial.println(" Ohm");
+  } else {
+    Serial.println("OPEN CIRCUIT");
+  }
+
+  delay(350); 
+}
