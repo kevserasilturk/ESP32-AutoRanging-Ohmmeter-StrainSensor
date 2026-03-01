@@ -11,7 +11,7 @@ This repository contains the firmware and design principles for a high-precision
 * **Signal Conditioning:** Features a 100-sample software averaging filter combined with hardware decoupling for rock-solid stability.
 * **Real-time Monitoring:** Optimized for serial plotting of strain-resistance curves.
 
-## 🛠 Hardware Architecture
+##  Hardware Architecture
 * **Microcontroller:** ESP32 (30-pin or 38-pin variants).
 * **Isolation:** 1N4148 Diodes for preventing reverse current between inactive GPIO pins.
 * **Stability:** 100nF ceramic capacitor between ADC Pin (GPIO 35) and GND.
