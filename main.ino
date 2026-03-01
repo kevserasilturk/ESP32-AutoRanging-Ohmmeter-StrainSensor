@@ -1,39 +1,104 @@
-# ESP32 Precision Auto-Ranging Ohmmeter
-### Targeted for Flexible Strain Sensor Characterization 
+// ESP32 3 Kademeli (Auto-Ranging) Hassas Multimetre
+// Geliştiren: Kevser - Ankara Üniversitesi Biyomedikal Mühendisliği
 
-This repository contains the firmware and design principles for a high-precision, auto-ranging ohmmeter built using an **ESP32**. The system is specifically engineered for **Biomedical Engineering** applications, such as measuring the resistance changes of carbon-composite flexible strain sensors during mechanical tensile testing.
+// GPIO Pinleri (Güç bu pinlerden sırayla verilecek)
+const int kademePinleri[] = {25, 26, 27};
+const int KADEME_SAYISI = 3;
 
+// Multimetre ile ölçülen net referans direnç değerleri (Ohm)
+const float referansDirencler[] = {325.8, 990.0, 4650.0};
 
+// Ölçüm ve ADC Ayarları
+const int adcPin = 35; // Ortak düğümün bağlı olduğu pin
+const float adcCozunurluk = 4095.0;
 
-##  Key Features
-* **Automatic Range Switching:** Seamlessly transitions between 3 resistance tiers ($325.8 \Omega$, $990.0 \Omega$, and $4650.0 \Omega$) to maintain high resolution.
-* **Dynamic Calibration:** Implements specific `vRef` offsets for each range to compensate for non-linear diode voltage drops.
-* **Signal Conditioning:** Features a 100-sample software averaging filter combined with hardware decoupling for rock-solid stability.
-* **Real-time Monitoring:** Optimized for serial plotting of strain-resistance curves.
+// BAŞLANGIÇ KADEMESİ
+int aktifKademe = 1; // 990 Ohm kademesinden başla
 
-##  Hardware Architecture
-* **Microcontroller:** ESP32 (30-pin or 38-pin variants).
-* **Isolation:** 1N4148 Diodes for preventing reverse current between inactive GPIO pins.
-* **Stability:** 100nF ceramic capacitor between ADC Pin (GPIO 35) and GND.
-* **Reference Resistors:** Precisely measured $325.8 \Omega$, $990.0 \Omega$, and $4650.0 \Omega$.
+void setup() {
+  Serial.begin(115200);
+  
+  // ADC çözünürlüğünü 12-bit (0-4095) olarak ayarla
+  analogReadResolution(12);
+  
+  // Pinleri başlangıçta kapat (Yüksek Empedans)
+  for (int i = 0; i < KADEME_SAYISI; i++) {
+    pinMode(kademePinleri[i], INPUT);
+  }
+  
+  Serial.println("========================================");
+  Serial.println("  HASSAS AUTO-RANGING MULTIMETRE v2.0   ");
+  Serial.println("  Mekanik Cekme Testi Icin Hazir       ");
+  Serial.println("========================================");
+}
 
+void loop() {
+  // --- AKTİF KADEMEYİ AÇ ---
+  for (int i = 0; i < KADEME_SAYISI; i++) {
+    if (i == aktifKademe) {
+      pinMode(kademePinleri[i], OUTPUT);
+      digitalWrite(kademePinleri[i], HIGH);
+    } else {
+      pinMode(kademePinleri[i], INPUT); 
+    }
+  }
 
+  // Voltajın oturması için bekleme
+  delay(15);
 
-##  Circuit Connection Map
-| Component | ESP32 Pin | Connection Note |
-| :--- | :--- | :--- |
-| **Range 1 (325.8Ω)** | GPIO 25 | Connected via Diode (Cathode to Resistor) |
-| **Range 2 (990.0Ω)** | GPIO 26 | Connected via Diode (Cathode to Resistor) |
-| **Range 3 (4650.0Ω)** | GPIO 27 | Connected via Diode (Cathode to Resistor) |
-| **Common Node** | GPIO 35 | Junction of all resistors + Filter Capacitor |
-| **Sensor (Rx)** | Junction & GND | The flexible strain sensor under test |
+  // --- GÜRÜLTÜ FİLTRELEME (100 Örneklem Ortalama) ---
+  long toplamAdc = 0;
+  int orneklem = 100;
+  for (int i = 0; i < orneklem; i++) {
+    toplamAdc += analogRead(adcPin);
+    delayMicroseconds(500);
+  }
+  float ortalamaAdc = (float)toplamAdc / orneklem;
 
-##  Installation & Usage
-1.  Clone this repository.
-2.  Open `main.ino` in Arduino IDE.
-3.  Install ESP32 Board Support (v2.0.x or higher).
-4.  Upload to your device and open **Serial Plotter** at 115200 baud.
+  // --- OTOMATİK KADEME DEĞİŞTİRME MANTIĞI ---
+  // ADC değeri çok düşükse (hassasiyet azalırsa) vites küçült
+  if (ortalamaAdc < 800 && aktifKademe > 0) {
+    aktifKademe--; 
+    return; 
+  }
+  // ADC değeri çok yüksekse (3.3V'a yaklaşırsa) vites büyüt
+  else if (ortalamaAdc > 3300 && aktifKademe < KADEME_SAYISI - 1) {
+    aktifKademe++; 
+    return; 
+  }
 
----
-Developed by **Kevser Asiltürk**  
-*Biomedical Engineering Student at Ankara University*
+  // --- HESAPLAMA VE KALİBRASYON ---
+  float vOut = (ortalamaAdc / adcCozunurluk) * 3.3; 
+  
+  // HER KADEME İÇİN ÖZEL VOLTAJ REFERANSI (Diyot Kayıpları Dahil)
+  float dinamikVRef;
+  if (aktifKademe == 0)      dinamikVRef = 2.254; // 325.8 Ohm kademesi kalibrasyonu
+  else if (aktifKademe == 1) dinamikVRef = 2.376; // 990.0 Ohm kademesi kalibrasyonu
+  else                       dinamikVRef = 2.550; // 4650.0 Ohm kademesi (tahmini)
+
+  float rx = 0.0;
+  // Güvenlik: vOut'un vRef'i geçmediğinden emin ol
+  if (dinamikVRef - vOut > 0.01) {
+    rx = referansDirencler[aktifKademe] * (vOut / (dinamikVRef - vOut));
+  } else {
+    rx = -1; // Açık devre veya limit dışı
+  }
+
+  // --- SONUÇLARI YAZDIR ---
+  Serial.print("KADEME: ");
+  Serial.print(aktifKademe + 1);
+  Serial.print(" [Ref: ");
+  Serial.print(referansDirencler[aktifKademe]);
+  Serial.print(" Ohm] | Vout: ");
+  Serial.print(vOut, 3);
+  Serial.print("V | HESAPLANAN DIRENC: ");
+  
+  if (rx > 0) {
+    Serial.print(rx, 2);
+    Serial.println(" Ohm");
+  } else {
+    Serial.println("ACIK DEVRE");
+  }
+
+  delay(350); 
+}
